@@ -1,0 +1,21 @@
+{
+    "name": "antcooper/gpx-watermark",
+    "description": "Add digital watermark to a GPX file",
+    "type": "project",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Anthony Cooper",
+            "email": "hello@antcooper.com"
+        }
+    ],
+    "minimum-stability": "dev",
+    "autoload": {
+        "psr-4": {
+            "antjcooper\\gpxwatermark\\": "src/"
+        }
+    },
+    "require": {
+        "league/flysystem": "2.x-dev"
+    }
+}
