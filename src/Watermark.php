@@ -2,175 +2,301 @@
 
 namespace antcooper\gpxwatermark;
 
+use antcooper\gpxwatermark\FileHandler;
+use antcooper\gpxwatermark\Payload;
+
 class Watermark
 {
-    public function insert($gpxFile)
+    /**
+     * Embed a watermark within file.
+     *
+     * @param  string $gpxFile         Path of source file
+     * @param  string $outputPath      Destination of the watermarked file
+     * @param  string $watermark       Invisible watermark message
+     * @param  array|null $metadata    Header information for the route, accepts name, desc, src
+     * @param  string|null $creator    Creator information
+     * @return void
+     */    
+    public function embed($gpxFile, $outputPath, $watermark, $metadata = null, $creator = null)
     {
-        // Set payload
-        $visibleWatermark = 'Prepared for antjcooper@outlook.com - All content copyright Cicerone Press Limited 9781786310361'; 
-        $watermark = 'richardbutler4@hotmail.com - 9781786310361||'; 
-        $payload = $this->createPayload($watermark);
+        // Setup file handler
+        $fileHandler = new FileHandler($gpxFile, $outputPath);
 
-        // Check if file exists
-        if (!file_exists($gpxFile)) {
-            return false;
-        }
+        // Get a list of GPX files to work on
+        $files = $fileHandler->getManifest();
 
-        // Read in the XML file
-        $xmlContent = simplexml_load_file($gpxFile);
+        // Create encoded payload
+        $encodedMessage = Payload::encode($watermark);
 
-        // if (isset($xmlContent->trk)) {
-        //     print_r('Track');
-        // }
-        // if (isset($xmlContent->rte)) {
-        //     print_r('Route');
-        // }
 
-        $xmlContent->attributes()->creator = "Cicerone Press https://www.cicerone.co.uk";
-        
-        unset($xmlContent->metadata);
-        
-        // Loop over the track segment
-        if ($xmlContent->trk) {
-            $xmlContent->trk->name = "Coledale Horseshoe";
-            $xmlContent->trk->desc = $visibleWatermark;
-            $xmlContent->trk->src = "https://www.cicerone.co.uk/walking-the-lake-district-fells-buttermere-second";
+        foreach($files as $file) {
+            // Read in the XML file
+            $xml = new \SimpleXMLElement($file, NULL, TRUE);
 
-            foreach ($xmlContent->trk->trkseg as $track) {
-
-                // Loop over eack trkpt in the segment
-                foreach ($track->trkpt as $point) {
-                    $point->attributes()->lat = preg_replace('/([-0-9]*?\.[0-9]{5})([0-9])/', '${1}9', $point->attributes()->lat);
-                    $point->attributes()->lon = preg_replace('/([-0-9]*?\.[0-9]{5})([0-9])/', '${1}9', $point->attributes()->lon);
-                }
-            }
-        }
-
-        if ($xmlContent->rte) {
-            $xmlContent->rte->name = "Coledale Horseshoe";
-            $xmlContent->rte->desc = $visibleWatermark;
-            $xmlContent->rte->src = "https://www.cicerone.co.uk/walking-the-lake-district-fells-buttermere-second";
+            // Set creator attribute
+            $xml->attributes()->creator = "Cicerone Press https://www.cicerone.co.uk";
             
-            $p = 0;
-            foreach ($xmlContent->rte->rtept as $point) {
-                $point->attributes()->lat = number_format((float)$point->attributes()->lat, 5, '.', '').substr($payload[$p], 0, 1);
-                $point->attributes()->lon = number_format((float)$point->attributes()->lon, 5, '.', '').substr($payload[$p], 1, 1);
-                $p++;
-                if ($p >= count($payload)) {
-                    $p = 0;
+            // Remove any old metadata
+            unset($xml->metadata);
+
+            // Set metadata at top level
+            $this->setMetadata($xml->metadata, $metadata);
+
+            // Check for existance of a track
+            if (isset($xml->trk)) {
+
+                // Set metadata on track
+                $this->setMetadata($xml->trk, $metadata);
+
+                // Loop over each track segment in the track
+                foreach ($xml->trk->trkseg as $track) {
+                    $this->insertWatermarkInWaypoints($track->trkpt, $encodedMessage);
                 }
             }
-        }
-        
-        $xmlContent->asXML(public_path('samples/output/short-route.gpx'));
 
-        return true; //$xmlContent;
+            // Check for existance of a route
+            if (isset($xml->rte)) {
+
+                // Set metadata on route
+                $this->setMetadata($xml->rte, $metadata);
+
+                // Insert payload into route
+                $this->insertWatermarkInWaypoints($xml->rte->rtept, $encodedMessage);
+            }
+
+            // Save file
+            $xml->asXML($file);
+
+        }
+
+        // Zip file if it is an archive
+        if ($fileHandler->isZip()) {
+            $fileHandler->compress();
+        }
+
+        return $fileHandler->watermarkedFile();
     }
 
-    public function extract($gpxOrigin, $gpxFile)
+
+    /**
+     * Attempt to extract message from GPX file
+     * 
+     * @param  string $sourceFile  Path to suspect GPX file
+     * @return string 
+     */
+    public function blindExtract($sourceFile)
     {
         // Check if file exists
-        if (!file_exists($gpxFile)) {
-            return false;
+        if (!file_exists($sourceFile)) {
+            throw new \Exception('GPX file does not exist');
         }
 
         // Read in the XML file
-        $xmlContent = simplexml_load_file($gpxFile);
+        $xml = new \SimpleXMLElement($sourceFile, NULL, TRUE);
 
-        // Loop over a route
-        $encodedMessage = [];
+        $waypoints = $this->exportCoordinatesFromWaypoints($xml);
+        $encodedMessage = $this->exportEncodedMessageFromWaypoints($waypoints);
 
-        if ($xmlContent->trk) {
-            foreach ($xmlContent->trk->trkseg as $track) {
+        // Decode message
+        $message = Payload::decode($encodedMessage);
 
-                // Loop over eack trkpt in the segment
-                foreach ($track->trkpt as $point) {
-                    $latitude = substr(number_format((float)$point->attributes()->lat, 6, '.', ''), -1);
-                    $longitude = substr(number_format((float)$point->attributes()->lon, 6, '.', ''), -1);
-                    
-                    $encodedMessage[] = $latitude . $longitude;
-                }
-            }
-        }
-
-        if ($xmlContent->rte) {
-            foreach ($xmlContent->rte->rtept as $point) {
-                $latitude = substr(number_format((float)$point->attributes()->lat, 6, '.', ''), -1);
-                $longitude = substr(number_format((float)$point->attributes()->lon, 6, '.', ''), -1);
-                
-                $encodedMessage[] = $latitude . $longitude;
-            }
-        }
-
-        $message = "";
-        foreach($encodedMessage as $letter) {
-            $message .= chr($letter+32);
-        }
-
+        // Split long message string into array
         $messages = explode('|',$message);
 
-        // Try a non-blind extract
-        if (!file_exists($gpxOrigin)) {
-            return 'Failed to open origin file';
+        return $messages;
+    }
+
+
+    /**
+     * Attempt a non-blind extract given the original file and a suspect
+     * Assumes that the test file may have had some waypoints trimmed
+     * 
+     * @param  string $gpxOrigin  The original GPX source file
+     * @param  string $gpxTest    The test suspect file
+     * @return array
+     */
+    public function extract($gpxOrigin, $gpxTest)
+    {
+        // Check if file exists
+        if (!file_exists($gpxOrigin) || !file_exists($gpxTest)) {
+            throw new \Exception('GPX file does not exist');
         }
 
-        // Read in the XML file
-        $xmlOrigin = simplexml_load_file($gpxOrigin);
-        $nonBlindMessage = "";
-        if ($xmlOrigin->rte) {
-            $p = 0;
-            foreach ($xmlOrigin->rte->rtept as $point) {
-                $oLat = number_format((float)$point->attributes()->lat, 5, '.', '');
-                $oLon = number_format((float)$point->attributes()->lon, 5, '.', '');
-  
-                $wLat = floor(((float)$xmlContent->rte->rtept[$p]->attributes()->lat * 100000)) / 100000;
-                $wLon = floor(((float)$xmlContent->rte->rtept[$p]->attributes()->lon * 100000)) / 100000;
-                
-                $wLat = preg_match('/[\-0-9]+\.[0-9]{0,5}/', $xmlContent->rte->rtept[$p]->attributes()->lat, $matches);
+        // Read in the Source XML file
+        $xml = new \SimpleXMLElement($gpxOrigin, NULL, TRUE);
 
-                $wLat = "0";
-                if (isset($matches[0])) {
-                    $wLat = number_format((float)$matches[0], 5, '.', '');
-                }
+        // Get waypoints from source 
+        $sourcePoints = $this->exportCoordinatesFromWaypoints($xml);
 
-                $wLon = preg_match('/[\-0-9]+\.[0-9]{0,5}/', $xmlContent->rte->rtept[$p]->attributes()->lon, $matches);
+        // Read in the Test XML file
+        $xml = new \SimpleXMLElement($gpxTest, NULL, TRUE);
 
-                $wLon = "0";
-                if (isset($matches[0])) {
-                    $wLon = number_format((float)$matches[0], 5, '.', '');
-                }
+        // Get waypoints from source 
+        $testPoints = $this->exportCoordinatesFromWaypoints($xml);
 
-                // dd($oLat .'=='.$wLat.' && '.$oLon.'=='.$wLon);
+        $encodedMessage = [];
+        $t = 0;
+        // Loop over source file
+        for($s=0; $s < count($sourcePoints); $s++) {
 
-                if (($oLat == $wLat) && ($oLon == $wLon)) {
-                    $latitude = substr(number_format((float)$xmlContent->rte->rtept[$p]->attributes()->lat, 6, '.', ''), -1);
-                    $longitude = substr(number_format((float)$xmlContent->rte->rtept[$p]->attributes()->lon, 6, '.', ''), -1);
-                
-                    $asciiCode = $latitude . $longitude;
+            // Round source coordinates to 5 decimal places
+            $sLat = number_format((float)$sourcePoints[$s][0], 5, '.', '');
+            $sLon = number_format((float)$sourcePoints[$s][1], 5, '.', '');
 
-                    $nonBlindMessage .= chr($asciiCode+32);
-                    $p++;
-                }
-                else {
-                    $nonBlindMessage .= '*';
-                }
+            // Get first 5 decimal places from test point, round up if negative
+            if ($testPoints[$t][0] >= 0) {
+                $tLat = floor(((float)$testPoints[$t][0] * 100000)) / 100000;
+            }
+            else {
+                $tLat = ceil(((float)$testPoints[$t][0] * 100000)) / 100000;
+            }
+            if ($testPoints[$t][1] >= 0) {
+                $tLon = floor(((float)$testPoints[$t][1] * 100000)) / 100000;
+            }
+            else {
+                $tLon = ceil(((float)$testPoints[$t][1] * 100000)) / 100000;
+            }
+
+            // If the 5dp waypoint position is same in source and test
+            if ($sLat == $tLat && $sLon == $tLon) {
+
+                $asciiCode = substr($testPoints[$t][0], -1);
+                $asciiCode .= substr($testPoints[$t][1], -1);
+
+                // Save the 6th decimal place from test
+                $encodedMessage[] = $asciiCode;
+
+                // Move to next point in test file
+                $t++;
+            }
+            else {
+                $encodedMessage[] = null;
             }
         }
 
-        $messages = explode('|',$nonBlindMessage);
-        dump($messages);
+        // Decode message
+        $message = Payload::decode($encodedMessage);
+
+        // Split long message string into array
+        $messages = explode('|',$message);
+
+        return $messages;
     }
 
-    private function createPayload($payload)
+    /**
+     * PRIVATE
+     */
+
+    /**
+     * Embed watermark in a route/track of waypoints
+     * 
+     * @param  mixed $waypoints
+     * @param  array $payload
+     * @return void
+     */
+    private function insertWatermarkInWaypoints(&$waypoints, $payload)
     {
-        $asciiInput = [];
-        for($i=0; $i < strlen($payload); $i++) {
-            $asciiInput[] = str_pad((ord(substr($payload, $i)) -32), 2, "0", STR_PAD_LEFT);
+        // Set value on each trackpoint
+        $p = 0;
+        foreach ($waypoints as $point) {
+            // Round lat and lon to 5 decimal places
+            $lat = number_format((float)$point->attributes()->lat, 5, '.', '');
+            $lon = number_format((float)$point->attributes()->lon, 5, '.', '');
+
+            // Append each digit from payload character to end of co-ordinate
+            $lat .= substr($payload[$p], 0, 1);
+            $lon .= substr($payload[$p], 1, 1);
+
+            // Overwrite current attributes
+            $point->attributes()->lat = $lat;
+            $point->attributes()->lon = $lon;
+
+            // Move to next payload character
+            $p++;
+
+            // If we're at the end of the payload
+            if ($p >= count($payload)) {
+                // Start back at the beginning
+                $p = 0;
+            }
         }
-        
-        // dd($asciiInput);
-        return $asciiInput;
     }
+    
+
+    /**
+     * Extract waypoints in a route/track
+     * 
+     * @param  mixed $xml
+     * @return array 2 dimensional array with [lat,lon]
+     */
+    private function exportCoordinatesFromWaypoints($xml)
+    {
+        $coordinates = [];
+
+        if ($xml->trk) {
+            foreach ($xml->trk->trkseg as $track) {
+                foreach ($track->trkpt as $point) {
+                    // Round the co-ordinates to 6 decimal places
+                    $coordinates[] = [
+                        number_format((float)$point->attributes()->lat, 6, '.', ''),
+                        number_format((float)$point->attributes()->lon, 6, '.', '')
+                    ];
+                }
+            }
+        }
+        else {
+            foreach ($xml->rte->rtept as $point) {
+                // Round the co-ordinates to 6 decimal places
+                $coordinates[] = [
+                    number_format((float)$point->attributes()->lat, 6, '.', ''),
+                    number_format((float)$point->attributes()->lon, 6, '.', '')
+                ];
+            }
+        }
+
+        return $coordinates;        
+    }
+
+
+    /**
+     * Extract encoded message from waypoints
+     * 
+     * @param  mixed $waypoints
+     * @param  array $encodedMessage
+     * @return array watermark character codes
+     */
+    private function exportEncodedMessageFromWaypoints($waypoints)
+    {
+        $encodedMessage = [];
+        foreach ($waypoints as $point) {
+            // Get the last digit
+            $lat = substr($point[0], -1);
+            $lon = substr($point[1], -1);
+
+            // Concatenate digits to a single number
+            $encodedMessage[] = $lat . $lon;
+        }
+
+        return $encodedMessage;
+    }
+    
+    /**
+     * Set metadata tags for a given parent node
+     * 
+     * @param  object $node
+     * @param  array|null $metadata
+     * @return void
+     */
+    private function setMetadata(&$node, $metadata)
+    {
+        unset($node->extensions);
+
+        foreach($metadata as $key => $value) {
+            $node->{$key} = $value;
+        }
+    }
+
+
 }
 
 
