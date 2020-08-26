@@ -32,8 +32,10 @@ class Watermark
             // Read in the XML file
             $xml = new \SimpleXMLElement($file, NULL, TRUE);
 
-            // Set creator attribute
-            $xml->attributes()->creator = "Cicerone Press https://www.cicerone.co.uk";
+            // Set creator attribute if provided
+            if ($creator) {
+                $xml->attributes()->creator = $creator;
+            }
             
             // Remove any old metadata
             unset($xml->metadata);
