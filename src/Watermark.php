@@ -14,7 +14,7 @@ class Watermark
      * @param  string $watermark       Invisible watermark message
      * @param  array|null $metadata    Header information for the route, accepts name, desc, src
      * @param  string|null $creator    Creator information
-     * @return void
+     * @return string
      */    
     public function embed($gpxFile, $outputPath, $watermark, $metadata = null, $creator = null)
     {
@@ -69,7 +69,7 @@ class Watermark
         }
 
         // Zip file if it is an archive
-        if ($fileHandler->isZip()) {
+        if ($fileHandler->isZip) {
             $fileHandler->compress();
         }
 

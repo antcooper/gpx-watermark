@@ -2,7 +2,6 @@
 
 namespace antcooper\gpxwatermark;
 
-
 class FileHandler
 {
     public  $isZip = false;
@@ -70,17 +69,6 @@ class FileHandler
 
 
     /**
-     * Is the source file a zip?
-     * 
-     * @return bool
-     */
-    public function isZip()
-    {
-        return $this->isZip;
-    }
-
-
-    /**
      * Pass back watermarked filename
      * 
      * @return string
@@ -136,7 +124,7 @@ class FileHandler
         return $results;
     }
 
-    
+
     /**
      * Recursively delete temporary zip folder
      * 
