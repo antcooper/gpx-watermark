@@ -81,7 +81,7 @@ class Extract
             // If the waypoint from the test file contains a payload character then 
             // the lat and lon should be within the bounds of -0.000005 to +0.000004
 
-            // Retreive the source co-ordinates, rounded to six decimal places and multiply by 1 million to create an integer
+            // Retrieve the source co-ordinates, rounded to six decimal places and multiply by 1 million to create an integer
             $sLat = number_format((float)$sourcePoints[$s][0], 6, '.', '') * 1000000;
             $sLon = number_format((float)$sourcePoints[$s][1], 6, '.', '') * 1000000;
 
