@@ -23,7 +23,19 @@ class Extract
         $xml = new \SimpleXMLElement($sourceFile, NULL, TRUE);
 
         $waypoints = $this->exportCoordinatesFromWaypoints($xml);
-        $encodedMessage = $this->exportEncodedMessageFromWaypoints($waypoints);
+
+        $encodedMessage = [];
+        foreach ($waypoints as $point) {
+            // Get the sixth digit
+            preg_match('/(-?\d+\.\d{5})(\d)/A', $point[0], $lat);
+            preg_match('/(-?\d+\.\d{5})(\d)/A', $point[1], $lon);
+
+            // If both attributes have a matching sixth digit
+            if (($lat && count($lat) == 3) && ($lon && count($lon) == 3)) {
+                // Concatenate digits to a single number
+                $encodedMessage[] = $lat[2] . $lon[2];
+            }
+        }
 
         // Decode message
         $message = $this->decode($encodedMessage);
@@ -161,30 +173,6 @@ class Extract
 
         return $coordinates;        
     }
-
-
-    /**
-     * Extract encoded message from waypoints
-     * 
-     * @param  mixed $waypoints
-     * @param  array $encodedMessage
-     * @return array watermark character codes
-     */
-    private function exportEncodedMessageFromWaypoints($waypoints)
-    {
-        $encodedMessage = [];
-        foreach ($waypoints as $point) {
-            // Get the last digit
-            $lat = substr($point[0], -1);
-            $lon = substr($point[1], -1);
-
-            // Concatenate digits to a single number
-            $encodedMessage[] = $lat . $lon;
-        }
-
-        return $encodedMessage;
-    }
-    
 
     /**
      * Decode the numeric message into a string

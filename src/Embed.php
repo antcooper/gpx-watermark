@@ -221,7 +221,7 @@ class Embed
                 $lonDigit = ($lonDigit - 4) * -1;
             }
 
-            // Divide by 1000000 to shift to 6th decimal place
+            // Divide by 1,000,000 to shift to 6th decimal place
             $latDigit = $latDigit / 1000000;
             $lonDigit = $lonDigit / 1000000;
 
